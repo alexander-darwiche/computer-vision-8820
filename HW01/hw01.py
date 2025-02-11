@@ -153,25 +153,59 @@ def iter_connected_comps(img, filter):
     
 
     
-    def calc_centroid(coords_x, coords_y):
+    def calc_centroid(component_data):
         x_total, y_total = 0, 0
-        for x,y in zip(coords_x,coords_y):
-            y_total += y
-            x_total += x
-        centroid_x = x_total/len(coords_x)
-        centroid_y = y_total/len(coords_y)
-        return [centroid_x, centroid_y]
+        for component in (component_data):
+            for ind,x in enumerate(component_data[component][1]):
+                y_total += component_data[component][1][ind]
+                x_total += component_data[component][2][ind]
 
-    import pdb;pdb.set_trace()
-    centroids = [calc_centroid(component_data[x][2],component_data[x][1]) for x in filtered_comps]
+            centroid_x = x_total/len(component_data[component][1])
+            centroid_y = y_total/len(component_data[component][1])
+            component_data[component].append([centroid_x,centroid_y])
+        return component_data
+
+    # Find Centroids
+    component_data = calc_centroid(component_data)
     show_image(B_image)
-    x_points, y_points = zip(*centroids)
-    plt.scatter(x_points,y_points, color='red', label="Added Points")
+
+    def find_bounding_boxes(component_data):
+        for component in (component_data):
+            x_min = min(component_data[component][2])
+            x_max = max(component_data[component][2])
+            y_min = min(component_data[component][1])
+            y_max = max(component_data[component][1])
+            
+            component_data[component].append([x_min,x_max,y_min,y_max])
+        return component_data
+    
+    # Find Centroids
+    component_data = find_bounding_boxes(component_data)
+
     import pdb;pdb.set_trace()
     return B_image, equivalence_table
 
 b_image, eql_table = iter_connected_comps(b_t,100)  
 
 # Display the binary image B
-show_image(b_image)                
+show_image(b_image,'viridis')                
 import pdb;pdb.set_trace()         
+
+import matplotlib.colors as mcolors
+
+# Generate a unique color for each value
+unique_values = np.unique(b_image)
+num_values = len(unique_values)
+colors = plt.cm.get_cmap('tab10', num_values)  # Use tab10 colormap with enough unique colors
+
+# Create a ListedColormap to assign a unique color to each value
+cmap = mcolors.ListedColormap(colors(range(num_values)))
+bounds = np.arange(num_values + 1) - 0.5  # Ensure discrete color separation
+norm = mcolors.BoundaryNorm(bounds, cmap.N)
+
+# Plot the image
+plt.figure(figsize=(5, 5))
+plt.imshow(b_image, cmap=cmap, norm=norm)
+plt.colorbar()
+plt.title("Unique Colors for Each Value")
+plt.show()
