@@ -9,9 +9,10 @@ file_path = "img/comb.img"
 width, height = 512, 512
 header_size = 512
 
-def show_image(img,cmap_str='gray'):
-    plt.imshow(img, cmap=cmap_str)
-    plt.show(block=False)
+def show_image(img,cmap_str='gist_gray'):
+    norm = plt.Normalize(vmin=0, vmax=100)  # Normalize so that only positive values are highlighted
+    plt.imshow(img, cmap=cmap_str,norm=norm)
+    plt.show()
 
 # Read the file
 with open(file_path, "rb") as f:
@@ -21,10 +22,10 @@ with open(file_path, "rb") as f:
 # Reshape into 2D array
 image_array = image_data.reshape((height, width))
 
-# # Display the base comb image
+# Display the base comb image
 # show_image(image_array)
 
-# Question 1
+# Question 1: Find the Binary Image
 def find_binary_img(img):
     B_t = img.copy()
     for ind1, row in enumerate(B_t):
@@ -34,17 +35,19 @@ def find_binary_img(img):
 
 b_t = find_binary_img(image_array)
 
-# # Display the binary image B_T
+# Display the binary image B_T
 # show_image(b_t)
 
-# Question 2
-
+# Question 2: Find Connected Components Iteratively
 def iter_connected_comps(img, filter):
     equivalence_table = dict()
     component_data = dict()
     list_equiv = []
     label = 0
     B_image = np.zeros_like(img, dtype=np.int16)
+
+    # First loop through the image and label the components as their encountered, using a new label if
+    # the top or left neighbor do not already have a label
     for ind1, row in enumerate(img):
         for ind2, col in enumerate(row):
             if col == 0:
@@ -71,7 +74,7 @@ def iter_connected_comps(img, filter):
                 if top_neighbor > 0 and left_neighbor > 0 and left_neighbor != top_neighbor:
                     list_equiv.append([left_neighbor,top_neighbor])
 
-    # delete duplicates in list
+    # delete duplicates in equivalence list
     seen_unique = list()
     seen = set()
     for i in list_equiv:
@@ -80,6 +83,10 @@ def iter_connected_comps(img, filter):
             seen_unique.append(i)
             seen.add(pair)
     list_equiv = seen_unique
+
+    # Loop through the equivalence list (labels that are equal) and build
+    # an equivalence table. This should consolidate so that all components 
+    # within a singular object are equal to one another.
     for i in list_equiv:
 
         in_items0 = len([key for key, value in equivalence_table.items() if i[0] in value])>0
@@ -142,70 +149,175 @@ def iter_connected_comps(img, filter):
         for ind2, col in enumerate(row):
             if col > 0:
                 if col not in component_data:
-                    size = 1
-                    component_data[col] = [size,[ind1],[ind2]]
+                    component_data[col] = {'size': 1, 'x': [ind2], 'y': [ind1]}
                 else:
-                    component_data[col][0] = component_data[col][0]+1
-                    component_data[col][1].append(ind1)
-                    component_data[col][2].append(ind2)
+                    component_data[col]['size'] += 1
+                    component_data[col]['x'].append(ind2)
+                    component_data[col]['y'].append(ind1)
 
-    filtered_comps = [x for x in component_data.keys() if component_data[x][0] > filter]
+    filtered_comps = [x for x in component_data.keys() if component_data[x]['size'] > filter]
+    keys = list(component_data.keys())
+    for i in keys:
+        if i not in filtered_comps:
+            for ind1, row in enumerate(img):
+                for ind2, col in enumerate(row):
+                    if B_image[ind1][ind2] == i:
+                        B_image[ind1][ind2] = 0
+
+            del component_data[i]
     
-
-    
-    def calc_centroid(component_data):
-        x_total, y_total = 0, 0
-        for component in (component_data):
-            for ind,x in enumerate(component_data[component][1]):
-                y_total += component_data[component][1][ind]
-                x_total += component_data[component][2][ind]
-
-            centroid_x = x_total/len(component_data[component][1])
-            centroid_y = y_total/len(component_data[component][1])
-            component_data[component].append([centroid_x,centroid_y])
-        return component_data
+    def calc_centroid(comp_data):
+        for component in (comp_data):
+            centroid_x = sum(component_data[component]['x'])/component_data[component]['size']
+            centroid_y = sum(component_data[component]['y'])/component_data[component]['size']
+            comp_data[component]['centroid'] = [centroid_x,centroid_y]
+        return comp_data
 
     # Find Centroids
     component_data = calc_centroid(component_data)
-    show_image(B_image)
+    # show_image(B_image)
 
-    def find_bounding_boxes(component_data):
-        for component in (component_data):
-            x_min = min(component_data[component][2])
-            x_max = max(component_data[component][2])
-            y_min = min(component_data[component][1])
-            y_max = max(component_data[component][1])
+    def find_bounding_boxes(comp_data):
+        for component in (comp_data):
+            x_min = min(comp_data[component]['x'])
+            x_max = max(comp_data[component]['x'])
+            y_min = min(comp_data[component]['y'])
+            y_max = max(comp_data[component]['y'])
             
-            component_data[component].append([x_min,x_max,y_min,y_max])
+            comp_data[component]['bounding_box'] = ([x_min,x_max,y_min,y_max])
         return component_data
     
-    # Find Centroids
+    # Find Bounding Boxes
     component_data = find_bounding_boxes(component_data)
 
-    import pdb;pdb.set_trace()
-    return B_image, equivalence_table
 
-b_image, eql_table = iter_connected_comps(b_t,100)  
+    import math
+    def calc_elongation(comp_data):
+        for component in comp_data:
+            a, b, c = 0,0,0
+            for ind,_ in enumerate(comp_data[component]['x']):
+                a += (comp_data[component]['x'][ind])**2
+                b += (comp_data[component]['x'][ind])*(comp_data[component]['y'][ind])
+                c += (comp_data[component]['y'][ind])**2
+            theta1 = math.atan(b/(a - c))/2
+            theta2 = theta1 + math.pi/2
+            x2_min = .5*(a+c)+.5*(a-c)*math.cos(2*theta1)+.5*b*math.sin(2*theta1)
+            x2_max = .5*(a+c)+.5*(a-c)*math.cos(2*theta2)+.5*b*math.sin(2*theta2)
+            if x2_min < x2_max:
+                axis_elong = theta1
+            else:
+                axis_elong = theta2
+                tmp = x2_min
+                x2_min = x2_max
+                x2_max = tmp
+            
 
-# Display the binary image B
-show_image(b_image,'viridis')                
-import pdb;pdb.set_trace()         
+            eccentricity = math.sqrt(x2_max)/math.sqrt(x2_min)
+            comp_data[component]['axis_of_elongation'] = axis_elong
+            comp_data[component]['eccentricity'] = eccentricity
+        return comp_data
+    
+    # Calc Elongation
+    component_data = calc_elongation(component_data)
+    
+    def find_perimeter(comp_data,image):
+        visited = np.zeros_like(image, dtype=bool)
+        for component in comp_data:
+            perimeter = 0
+        
+            perimeter_pts = []
+            perimeter_y = []
+            perimeter_flag = True
+            ind1 = comp_data[component]['x'][0]
+            ind2 = comp_data[component]['y'][0]
+            previous_direction = 0
+            directions = [[-1,0], [-1,-1], [0,-1],[1, -1],[1, 0],[1, 1],[0, 1], [-1, 1]]
+            
+            while perimeter_flag:
+                perimeter_pts.append([ind1,ind2])
+                if perimeter != 0 and ind1 == comp_data[component]['x'][0] and ind2 == comp_data[component]['y'][0]:
+                    break
+                
+                # [1][2][3]
+                # [0][x][4]
+                # [7][6][5]
+                for i in range(8):
+                    direction = (previous_direction + i + 1) % 8
+                    diff_x, diff_y = directions[direction]
+                    if ind1+diff_x >= 0 and ind1+diff_x < 512:
+                        if ind2+diff_y >= 0 and ind2+diff_y < 512:
+                            if image[ind2+diff_y,ind1+diff_x] == component:
+                                
+                                # print(ind1,ind2)
+                                # print(ind1+diff_x,ind2+diff_y)
+                                # import pdb;pdb.set_trace()
+                                perimeter += math.sqrt((diff_x**2) + (diff_y**2))
+                                previous_direction = (direction + 4)%8
+                                ind2 = ind2+diff_y
+                                ind1 = ind1+diff_x
+                                break
+                
+            comp_data[component]['perimeter'] = perimeter
+            comp_data[component]['perimeter_pts'] = perimeter_pts
+        return comp_data
 
-import matplotlib.colors as mcolors
+    component_data = find_perimeter(component_data,B_image)
 
-# Generate a unique color for each value
-unique_values = np.unique(b_image)
-num_values = len(unique_values)
-colors = plt.cm.get_cmap('tab10', num_values)  # Use tab10 colormap with enough unique colors
+    def draw_perimeters(comp_data):
+        for component in comp_data:
+            x_coords, y_coords = zip(*comp_data[component]['perimeter_pts'])
+            # Create a scatter plot
+            plt.scatter(x_coords, y_coords)
 
-# Create a ListedColormap to assign a unique color to each value
-cmap = mcolors.ListedColormap(colors(range(num_values)))
-bounds = np.arange(num_values + 1) - 0.5  # Ensure discrete color separation
-norm = mcolors.BoundaryNorm(bounds, cmap.N)
+            # Add titles and labels
+            plt.title("Scatter Plot of Points")
+            plt.xlabel("X-axis")
+            plt.ylabel("Y-axis")
 
-# Plot the image
-plt.figure(figsize=(5, 5))
-plt.imshow(b_image, cmap=cmap, norm=norm)
-plt.colorbar()
-plt.title("Unique Colors for Each Value")
-plt.show()
+            # Show the plot
+            plt.show()
+
+    def calc_compactness(comp_data):
+        for component in comp_data:
+            comp_data[component]['compactness'] = (comp_data[component]['perimeter']**2)/(comp_data[component]['size'])
+        return comp_data
+    
+    component_data = calc_compactness(component_data)
+
+    return B_image, equivalence_table, component_data
+
+b_image, eql_table, cd = iter_connected_comps(b_t,1000)  
+b_image2, eql_table2, cd2 = iter_connected_comps(b_t,5000)  
+b_image3, eql_table3, cd3 = iter_connected_comps(b_t,10000)  
+
+# # show_image(b_image)
+# # show_image(b_image2)
+# show_image(b_image3)
+
+import pdb;pdb.set_trace()
+def print_comps(comp_data):
+    component_num = 0
+    for component in comp_data:
+        component_num += 1
+        area = comp_data[component]['size']
+        centroid = comp_data[component]['centroid']
+        bounding_box = comp_data[component]['bounding_box']
+        axis_of_elongation = comp_data[component]['axis_of_elongation']
+        eccentricity = comp_data[component]['eccentricity']
+        perimeter = comp_data[component]['perimeter']
+        compactness = comp_data[component]['compactness']
+
+        print(f"Component #{component_num}:")
+        print(f"{'='*30}")
+        print(f"Area: {area}")
+        print(f"Centroid: {centroid}")
+        print(f"Bounding Box: {bounding_box}")
+        print(f"Axis of Elongation: {axis_of_elongation}°")
+        print(f"Eccentricity: {eccentricity:.2f}")
+        print(f"Perimeter: {perimeter}")
+        print(f"Compactness: {compactness:.2f}")
+import pdb;pdb.set_trace()
+
+print_comps(cd)
+print_comps(cd2)
+print_comps(cd3)
