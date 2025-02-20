@@ -9,8 +9,13 @@ file_path = "img/comb.img"
 width, height = 512, 512
 header_size = 512
 
-def show_image(img,cmap_str='gist_gray'):
+def show_image(img,cmap_str='gray_r'):
     norm = plt.Normalize(vmin=0, vmax=100)  # Normalize so that only positive values are highlighted
+    plt.imshow(img, cmap=cmap_str,norm=norm)
+    plt.show()
+
+def show_image_binary(img,cmap_str='gray_r'):
+    norm = plt.Normalize(vmin=0, vmax=1)  # Normalize so that only positive values are highlighted
     plt.imshow(img, cmap=cmap_str,norm=norm)
     plt.show()
 
@@ -308,5 +313,8 @@ distance_mask = find_distances(b_t)
 skeletons = find_skeletons(distance_mask)
 
 new_binary = rebuild_binary(skeletons)
-
+show_image_binary(b_t)
+show_image(distance_mask)
+show_image(skeletons)
+show_image_binary(new_binary)
 import pdb;pdb.set_trace()
