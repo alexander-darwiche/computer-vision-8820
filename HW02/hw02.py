@@ -198,6 +198,13 @@ b_image, eql_table, cd = iter_connected_comps(b_t,1000)
 
 import copy
 def find_distances(img):
+    '''
+    This function loops through the image so long as it can still make updates. 
+    It will continue to find the min distance to a boundary for each pixel in 
+    the image, for each pixel within the current distance contour. So it would 
+    take 6 iterations for a pixel to be marked with a distance of 6.
+
+    '''
     
     skeleton_mask = copy.deepcopy((img))
     max_val = 0
@@ -238,7 +245,14 @@ def find_distances(img):
 
 
 def find_skeletons(mask):
+    '''
+    This functionloops through the distances created in the first function. Now, this
+    function finds all points that are locally maximum (distance from boundary) 
+    throughout the image. These points are given a value of 1 or they maintain their 
+    distance value. Anything that is not locally maximum, is set to 0. The remaining 
+    points are the “skeletons” of the image.
 
+    '''
     mask2 = copy.deepcopy(mask)
     for ind1, row in enumerate(mask):
         for ind2, col in enumerate(row):
@@ -275,6 +289,14 @@ def find_skeletons(mask):
     return mask2
 
 def rebuild_binary(skeleton_mask):
+    '''
+    This function takes the skeletons (those with distance information preserved) and 
+    rebuilds the binary by proliferating out from the skeletons, based on their 
+    distance. The algorithm will always essentially find the max between the neighbors 
+    of the current pixel and the current pixel’s distance minus 1. This proliferates out 
+    until the original binary image is reconstructed.
+    
+    '''
     new_mask = copy.deepcopy(skeleton_mask)
     for iterations in range(np.max(new_mask)):
         for ind1, row in enumerate(new_mask):
@@ -312,9 +334,11 @@ distance_mask = find_distances(b_t)
 
 skeletons = find_skeletons(distance_mask)
 
+
 new_binary = rebuild_binary(skeletons)
+
+# Visualize all images
 show_image_binary(b_t)
 show_image(distance_mask)
 show_image(skeletons)
 show_image_binary(new_binary)
-import pdb;pdb.set_trace()
