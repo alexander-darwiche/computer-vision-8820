@@ -26,27 +26,12 @@ def show_image_4(img,cmap_str='gray'):
 
 def log_kernels_2D(sigma):
     mask = np.zeros((int(sigma * 8.0 + 1), int(sigma * 8.0+1)))
-    mask2 = np.zeros((int(sigma * 8.0 + 1), int(sigma * 8.0+1)))
-
-    kernel_size = mask.shape[0]
-    # Step 1: Create meshgrid for plotting
-    x = np.arange(-kernel_size // 2 + 1, kernel_size // 2 + 1)
-    y = np.arange(-kernel_size // 2 + 1, kernel_size // 2 + 1)
-    x, y = np.meshgrid(x, y)
-
-    # Step 2: Apply Laplacian of Gaussian to generate Z values
-    norm_factor = 1 / (2 * np.pi * sigma**4)
-    z = norm_factor * (1 - (x**2 + y**2) / (2 * sigma**2)) * np.exp(-(x**2 + y**2) / (2 * sigma**2))
-    # z = -sigma*((x**2 + y**2 - 2*(sigma**2))/(sigma**4)) * np.exp(-(x**2+y**2)/(2*(sigma**2)))
-    mask = z
-    # import pdb;pdb.set_trace()
     
     for indx, x in enumerate(range(int(-4.0*sigma), int(4.0*sigma+1))):
         for indy, y in enumerate(range(int(-4.0*sigma), int(4.0*sigma+1))):
-            mask2[indx,indy] = ((x**2 + y**2 - 2*(sigma**2))/(sigma**4)) * math.exp(-(x**2+y**2)/(2*(sigma**2)))
-            # mask2[indx,indy] = norm_factor * (1 - (x**2 + y**2) / (2 * sigma**2)) * np.exp(-(x**2 + y**2) / (2 * sigma**2))
+            mask[indx,indy] = ((x**2 + y**2 - 2*(sigma**2))/(sigma**4)) * math.exp(-(x**2+y**2)/(2*(sigma**2)))
 
-    return mask2
+    return mask
 
 def pad_image(image, pad):
     width = len(image[0])
@@ -72,25 +57,47 @@ def convolve(kernel, image, edge_map):
     padded_image = pad_image(image, pad=(padding_size))
     new_image = np.zeros(image.shape, dtype=np.float64)
     padded_edge_map = np.pad(edge_map, pad_width=1, mode='constant', constant_values=0)
+
+
     for row in range(len(new_image)):
         for col in range(len(new_image[row])):
             if np.max(padded_edge_map[row:row+3,col:col+3]) == 1:
                 new_image[row][col] = np.sum(kernel * padded_image[row:row+padding_size*2+1,col:col+padding_size*2+1])
-            else:
-                new_image[row][col] = padded_image[row+padding_size+1,col+padding_size+1]
+
     return new_image
 
-def create_edge_map(image, previous_em):
+def create_edge_map(image, previous_edge_map):
     edge_map = np.zeros(image.shape)
+
     padded_image = np.pad(image, pad_width=1, mode='constant', constant_values=0)
+    padded_edge_map = np.pad(previous_edge_map, pad_width=1, mode='constant', constant_values=0)
+
+    threshold = 10
     for row in range(len(edge_map)):
         for col in range(len(edge_map[row])): 
-            if previous_em[row][col] == 1:
-                if (np.max(padded_image[row:row+3,col:col+3]) > 0 and np.min(padded_image[row:row+3,col:col+3]) < 0):
-                    edge_map[row][col] = 1
-                else:
-                    edge_map[row][col] = 0
-            
+            # If the current node is an 8-neighbor of a current edge
+            if np.max(padded_edge_map[row:row+3,col:col+3]) == 1 and edge_map[row][col] == 0:
+
+                # Next, check if this is a zero-crossing
+                current_value = padded_image[row+1,col+1]
+                left_value = padded_image[row+1,col]
+                top_value = padded_image[row,col+1]
+                # Check if zero-crossing with left-value
+                if (current_value > 0 and left_value < 0) or (current_value < 0 and left_value > 0):
+                    if abs(current_value) + abs(left_value) > threshold:
+                        if abs(current_value) < abs(left_value):
+                            edge_map[row,col] = 1    
+                        else:
+                            edge_map[row,col-1] = 1 
+
+                # Check if zero-crossing with right-value
+                elif (current_value > 0 and top_value < 0) or (current_value < 0 and top_value > 0):
+                    if abs(current_value) + abs(top_value) > threshold:
+                        if abs(current_value) < abs(top_value):
+                            edge_map[row,col] = 1
+                        else:
+                            edge_map[row-1,col] = 1
+
     return edge_map
 
 # Parameter Definitions
@@ -104,142 +111,48 @@ header_size = 512
 image_data = []
 combos = []
 
-
-
 # Read the file(s)
 for i in range(len(files)):
     with open(files[i], "rb") as f:
         f.seek(header_size)
         image_data.append(list(f.read()))
 
+# Reshape Images
 for i in range(len(image_data)):
     image_data[i] = (np.array(image_data[i], dtype=np.float64).reshape((height,width)))
 
-import copy
-import cv2
-# Create a blank black image
-image = np.zeros((100, 100), dtype=np.uint8)
 
-# Add one distinct white circle (creates a strong edge)
-center = (50, 50)  # Center of the image
-radius = 20
-cv2.circle(image, center, radius, 255, -1)  # -1 fills the circle
+# for i in range(len(image_data)):
 
-# Add random noise
-noise = np.random.normal(0, 25, image.shape).astype(np.int16)
-image = np.clip(image.astype(np.int16) + noise, 0, 255).astype(np.uint8)
-
+i = 0
 sigma = 5
-edge_map = np.ones(image.shape)
-log_edge_maps = []
-log_maps = []
+edge_map = np.ones(image_data[i].shape)
+log_edge_maps = [image_data[i]]
 while sigma >= 1.0:
     mask = log_kernels_2D(sigma)
-    LoG = convolve(mask, image, edge_map)
+    LoG = convolve(mask, image_data[i], edge_map)
     edge_map = create_edge_map(LoG,edge_map)
 
     if sigma % 1 == 0:
-        # log_maps.append(LoG)
         log_edge_maps.append(edge_map)
-        show_image_4(edge_map)
-        show_image(edge_map)
+        # show_image_4(edge_map)
 
     sigma = sigma - .5
-# Plot the results
-fig, axes = plt.subplots(1, len(log_edge_maps), figsize=(15, 5))
+
+n_cols = (len(log_edge_maps) + 1) // 2  # Determine number of columns based on number of images
+fig, axes = plt.subplots(2, n_cols, figsize=(15, 10))
+
+# Flatten the axes array to make indexing easier
+axes = axes.flatten()
+
 for ax, log_image, sigma in zip(axes, log_edge_maps, range(len(log_edge_maps))):
-    ax.imshow(log_image, cmap='gray_r')
-    ax.set_title(f"σ = {sigma+1}")
+    ax.imshow(log_image, cmap='gray')
+    ax.set_title(f"σ = {sigma + 1}")
     ax.axis('off')
 
+# Hide any unused axes
+for i in range(len(log_edge_maps), len(axes)):
+    axes[i].axis('off')
+
+plt.tight_layout()
 plt.show()
-
-
-
-
-# for i in range(len(image_data)):
-#     sigma = 5
-#     edge_map = np.ones(image_data[i].shape)
-#     log_edge_maps = []
-#     log_maps = []
-#     while sigma >= 1.0:
-#         mask = log_kernels_2D(sigma)
-#         LoG = convolve(mask, image_data[i], edge_map)
-#         edge_map = create_edge_map(LoG,edge_map)
-
-#         if sigma % 1 == 0:
-#             # log_maps.append(LoG)
-#             log_edge_maps.append(edge_map)
-#             # show_image_4(edge_map)
-
-#         sigma = sigma - .5
-#     # Plot the results
-#     fig, axes = plt.subplots(1, len(log_edge_maps), figsize=(15, 5))
-#     for ax, log_image, sigma in zip(axes, log_edge_maps, range(len(log_edge_maps))):
-#         ax.imshow(log_image, cmap='gray_r')
-#         ax.set_title(f"σ = {sigma+1}")
-#         ax.axis('off')
-
-#     plt.show()
-
-
-
-# for i in range(len(image_data)):
-#     sigma = 5
-#     edge_map = np.ones(image_data[i].shape)
-#     log_edge_maps = []
-#     log_maps = []
-#     while sigma >= 5.0:
-#         mask = log_kernels_2D(sigma)
-#         LoG = convolve(mask, image_data[i], edge_map)
-#         edge_map = create_edge_map(LoG, edge_map)
-
-#         if sigma % 1 == 0:
-#             # log_maps.append(LoG)
-#             log_edge_maps.append(edge_map)
-#             # show_image_4(edge_map)
-
-#         sigma = sigma - .5
-#     # Plot the results
-#     num_maps = len(log_edge_maps)
-
-#     fig, axes = plt.subplots(1, num_maps, figsize=(15, 5))
-#     if num_maps == 1:
-#         axes = [axes]
-
-#     for ax, log_image, sigma in zip(axes, log_edge_maps, range(num_maps)):
-#         ax.imshow(log_image, cmap='gray_r')
-#         ax.set_title(f"σ = {sigma+1}")
-#         ax.axis('off')
-
-#     plt.show()
-
-
-
-
-def plot_mask(mask):
-        # Create a meshgrid for the X and Y axes
-    x = np.arange(mask.shape[0])
-    y = np.arange(mask.shape[1])
-    x, y = np.meshgrid(x, y)
-
-    # Initialize a figure for plotting
-    fig = plt.figure(figsize=(10, 7))
-
-    # Create 3D axes
-    ax = fig.add_subplot(111, projection='3d')
-
-    # Plot the surface
-    surf = ax.plot_surface(x, y, mask, cmap='viridis', edgecolor='none')
-
-    # Add labels
-    ax.set_xlabel('X axis')
-    ax.set_ylabel('Y axis')
-    ax.set_zlabel('Z (mask values)')
-    ax.set_title('3D Surface Plot of Mask')
-
-    # Show the color bar
-    fig.colorbar(surf)
-
-    # Display the plot
-    plt.show()
